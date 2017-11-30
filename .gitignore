@@ -1,0 +1,8 @@
+.idea/
+.settings/
+/public/js
+/target
+.classpath
+.project
+*.iml
+*.log
