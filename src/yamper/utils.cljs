@@ -15,3 +15,6 @@
 
 (defn format [fmt & args]
   (apply gstring/format fmt args))
+
+(defn html-escape [s]
+  (gstring/htmlEscape s))

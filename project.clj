@@ -6,7 +6,7 @@
 
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/clojurescript "1.9.946"]
-                 [org.clojure/core.async "0.3.443"]
+                 [org.clojure/core.async "0.3.465"]
                  ;; misc libs
                  [alandipert/storage-atom "2.0.1"]
                  [com.cemerick/url "0.1.1"]
@@ -14,8 +14,7 @@
                  ;; ui libs
                  [reagent "0.7.0"]
                  [baking-soda "0.1.3" :exclusions [cljsjs/reactstrap]]
-                 [cljsjs/bootstrap-notify "3.1.3-0"]
-                 [cljsjs/bootstrap-treeview "1.2.0-1"]]
+                 [cljsjs/bootstrap-notify "3.1.3-0"]]
   :plugins [[lein-cljsbuild "1.1.7"]
             [lein-figwheel "0.5.14"]]
 
@@ -49,7 +48,7 @@
 
   :aliases {"package" ["do" "clean" ["cljsbuild" "once" "release"]]}
 
-  :profiles {:dev {:dependencies [[binaryage/devtools "0.9.7"]
+  :profiles {:dev {:dependencies [[binaryage/devtools "0.9.8"]
                                   [com.cemerick/piggieback "0.2.2"]
                                   [figwheel-sidecar "0.5.14"]
                                   [org.clojure/tools.nrepl "0.2.13"]]}})
