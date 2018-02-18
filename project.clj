@@ -16,6 +16,7 @@
                  [baking-soda "0.1.3" :exclusions [cljsjs/reactstrap]]
                  [cljsjs/bootstrap-notify "3.1.3-0"]]
   :plugins [[lein-cljsbuild "1.1.7"]
+            [lein-exec "0.3.7"]
             [lein-figwheel "0.5.14"]]
 
   :resource-paths ["public"]
@@ -46,7 +47,8 @@
                                             :optimizations :advanced
                                             :pretty-print false}}}}
 
-  :aliases {"package" ["do" "clean" ["cljsbuild" "once" "release"]]}
+  :aliases {"package" ["do" "clean" ["cljsbuild" "once" "release"]]
+            "publish" ["do" "package" ["exec" "deploy.clj"]]}
 
   :profiles {:dev {:dependencies [[binaryage/devtools "0.9.8"]
                                   [com.cemerick/piggieback "0.2.2"]

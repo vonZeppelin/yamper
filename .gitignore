@@ -1,8 +1,5 @@
 .idea/
-.settings/
-/public/js
-/target
-.classpath
-.project
+public/js/
+target/
 *.iml
 *.log
