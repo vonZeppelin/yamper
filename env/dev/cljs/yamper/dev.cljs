@@ -1,7 +1,7 @@
 (ns ^:figwheel-no-load yamper.dev
   (:require
-    [yamper.core :as core]
-    [devtools.core :as devtools]))
+   [devtools.core :as devtools]
+   [yamper.core :as core]))
 
 (enable-console-print!)
 

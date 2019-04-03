@@ -1,110 +1,107 @@
 (ns yamper.view
   (:require
-    [clojure.data :refer [diff]]
-    cljsjs.bootstrap-notify
-    [yamper.net :as net]
-    [yamper.utils :as utils]
-    [reagent.core :as reagent]
-    [baking-soda.bootstrap3 :as bstrap])
-  (:require-macros
-    [cljs.core.async.macros :refer [go]]))
+   [ant-man.core :as ant]
+   [cljs.core.async :refer [<!] :refer-macros [go]]
+   [cljs.core.match :refer-macros [match]]
+   [reagent.core :as reagent]
+   [yamper.net :as net]))
 
-;; notifications
+(defn ^:export success [msg]
+  (.success js/antd.notification (js-obj "description" msg "message" "Hooray!")))
 
-(defn- notify [msg type]
-  (.notify js/$ #js {:message msg} #js {:type type}))
+(defn ^:export error [msg]
+  (.error js/antd.notification (js-obj "description" msg "message" "Something went wrong...")))
 
-(defn success [msg]
-  (notify msg "success"))
+(def ^:private yandex-logo [:svg {:viewBox "0 0 320 512" :width "0.625em" :fill "currentColor"}
+                            [:path {:d "M129.5 512V345.9L18.5 48h55.8l81.8 229.7L250.2 0h51.3L180.8 347.8V512h-51.3z"}]])
 
-(defn error [msg]
-  (notify
-    (if (utils/error? msg)
-      (.-message msg)
-      msg)
-    "danger"))
+(def ^:private app-state (reagent/atom {:navigator {:hidden false
+                                                    :tree-data (mapv
+                                                                (fn [[disk-name disk]]
+                                                                  {:title disk-name
+                                                                   :path "/"
+                                                                   :children []
+                                                                   :disk disk})
+                                                                @net/disks-store)}}))
 
-;; disks tree
+(defn- header-comp []
+  [ant/layout-header
+   [:h1.logo
+    [ant/icon {:component (reagent/reactify-component (constantly yandex-logo))}]
+    "amper"]])
 
-(defn- tree-node [root path-coll]
-  (let [node (reagent/cursor root path-coll)
-        {:keys [children expanded? label path]} @node
-        collapse-directory! (fn [_]
-                              (swap! node dissoc :expanded?))
-        expand-directory! (fn [_]
-                            (swap! node assoc :expanded? true)
-                            (when (and
-                                    (seq path-coll)
-                                    (or
-                                      (keyword? children)
-                                      (empty? children)))
-                              (swap! node assoc :children ::loading)
-                              (go
-                                (try
-                                  (let [disk (->> path-coll (take 2) (get-in @root) :disk)
-                                        {children :children} (utils/<? (net/get-metadata disk path))]
-                                    (swap! node assoc :children children))
-                                  (catch :default e
-                                    (swap! node assoc :children ::error)
-                                    (error e))))))]
-    [:li.list-group-item
-      (if children
-        ;; directory node
-        [:span.list-group-item-text
-          {:on-click (if expanded? collapse-directory! expand-directory!)}
-          [bstrap/Glyphicon {:glyph (if expanded?
-                                      (case children
-                                        ::loading "refresh"
-                                        ::error "exclamation-sign"
-                                        "folder-open")
-                                      "folder-close")}]
-          label]
-        ;; leaf node
-        [:span.list-group-item-text
-          [bstrap/Glyphicon {:glyph "music"}]
-          label])
-      (when (and
-              expanded?
-              (coll? children)
-              (seq children))
-        [:ul.list-group
-          (map-indexed
-            (fn [i _]
-              ^{:key i} [tree-node root (conj path-coll :children i)])
-            children)])]))
-
-(defn disks-tree-comp [disks-store]
-  (reagent/with-let [tuple->node (fn [[label disk]]
-                                   {:children []
-                                    :disk disk
-                                    :label label
-                                    :path "/"})
-                     root (reagent/atom {:children (mapv tuple->node @disks-store)
-                                         :expanded? true
-                                         :label "My disks"})
-                     store-watcher (fn [_ _ old-state new-state]
-                                     (let [[removed added _] (diff old-state new-state)
-                                           added (map tuple->node added)]
-                                       (swap! root update-in [:children] into added)))
-                     _ (add-watch disks-store ::tree-comp store-watcher)]
-    [:div.tree
-      [:ul.list-group
-        [tree-node root []]]]
+(defn- navigator-comp []
+  (reagent/with-let [hidden? (reagent/cursor app-state [:navigator :hidden])
+                     tree-data (reagent/cursor app-state [:navigator :tree-data])
+                     disks-menu (reagent/as-element
+                                 [ant/menu
+                                  {:onClick #(-> % .-key net/disk-registrators (apply []))}
+                                  (for [[registrator-name _] net/disk-registrators]
+                                    [ant/menu-item
+                                     {:key registrator-name}
+                                     [ant/icon {:type "hdd"}]
+                                     registrator-name])])
+                     load-tree-data (fn [node]
+                                      (js/Promise. (fn [resolve _]
+                                                     (let [node-path (->> (.. node -props -dataRef) js->clj (interpose :children))
+                                                           disk (->> node-path first (nth @tree-data) :disk)
+                                                           disk-path (->> node-path (get-in @tree-data) :path)]
+                                                       (if (empty? (.. node -props -children))
+                                                         (go
+                                                           (match (<! (net/browse disk disk-path))
+                                                             [:ok {:children children}] (swap! tree-data
+                                                                                               update-in node-path
+                                                                                               assoc :children children)
+                                                             [:error err] (error err))
+                                                           (resolve))
+                                                         (resolve))))))
+                     render-tree-nodes (fn render-tree-nodes [items parent-path disk-name]
+                                         (map-indexed
+                                          (fn [index {:keys [title path children]}]
+                                            (let [disk-name (or disk-name title)
+                                                  node-key (str disk-name path)
+                                                  node-path (conj parent-path index)]
+                                              (if children
+                                                [ant/tree-tree-node
+                                                 {:title title :key node-key :dataRef node-path}
+                                                 (render-tree-nodes children node-path disk-name)]
+                                                [ant/tree-tree-node
+                                                 {:title title :key node-key :dataRef node-path :isLeaf true}])))
+                                          items))
+                     _ (add-watch net/disks-store ::navigator print)]
+    [ant/layout-sider
+     {:class "navigator"
+      :collapsedWidth "16"
+      :collapsible true
+      :onCollapse (fn [collapsed _]
+                    (reset! hidden? collapsed))
+      :multiple true
+      :width 350}
+     (when-not @hidden?
+       [ant/layout
+        [ant/dropdown
+         {:overlay disks-menu}
+         [ant/button
+          "Add new disk"
+          [ant/icon {:type "down"}]]]
+        [ant/tree
+         {:loadData load-tree-data}
+         (render-tree-nodes @tree-data [] nil)]])]
     (finally
-      (remove-watch ::tree-comp disks-store))))
+      (remove-watch ::navigator net/disks-store))))
 
-;; disks management
+(defn- tbd-comp []
+  [ant/layout-content
+   {:style {:height "100px"}} "Content"])
 
-(defn add-disk-comp []
-  [bstrap/Button
-    {:bs-size "small"
-     :bs-style "default"
-     :on-click net/ydisk-oauth-redirect!}
-    [bstrap/Glyphicon {:glyph "plus"}]
-    "Add YDisk..."])
+(defn- app-layout []
+  [ant/layout
+   [header-comp]
+   [ant/layout
+    [navigator-comp]
+    [tbd-comp]]])
 
-;; init
-
-(defn init-ui! [disks-store]
-  (reagent/render [add-disk-comp] (.getElementById js/document "add-disk"))
-  (reagent/render [disks-tree-comp disks-store] (.getElementById js/document "disks-tree")))
+(defn init-ui! []
+  (reagent/render
+   [app-layout]
+   (.getElementById js/document "app")))

@@ -1,6 +1,6 @@
 (ns yamper.prod
   (:require
-    [yamper.core :as core]))
+   [yamper.core :as core]))
 
 (set! *print-fn* (fn [& _]))
 

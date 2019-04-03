@@ -1,103 +1,111 @@
 (ns yamper.net
   (:require
-    [cljs.core.async :refer [<!]]
-    [alandipert.storage-atom :as storage]
-    [cemerick.url :as url]
-    [cljs-http.client :as http]
-    [cognitect.transit :as transit])
-  (:require-macros
-    [cljs.core.async.macros :refer [go]])
-  (:import
-    goog.history.Html5History))
+   [alandipert.storage-atom :as storage]
+   [cemerick.uri :refer [uri uri-decode]]
+   [cljs-http.client :as http]
+   [cljs.core.async :refer [<!] :refer-macros [go]]
+   [cljs.core.match :refer-macros [match]]
+   [clojure.string :as str]
+   [cognitect.transit :as transit]
+   [secretary.core :refer-macros [defroute]]))
 
 (defprotocol IDisk
+  (browse [this path])
   (disk-name [this])
-  (get-metadata [this object-path])
   (get-file [this file-path]))
 
-(def ^:private ydisk-api-url (url/url "https://cloud-api.yandex.net/v1/disk/"))
+(def ^:private ydisk-api-uri (uri "https://cloud-api.yandex.net/v1/disk/"))
 
-(defrecord ^:private YandexDisk [token]
+(defrecord YandexDisk [token]
   IDisk
+  (browse [this path]
+    (go
+      (let [resp (<! (http/get
+                      (uri ydisk-api-uri "resources")
+                      {:query-params {:path path
+                                      :fields "name,path,type,media_type,_embedded.items.name,_embedded.items.path,_embedded.items.type,_embedded.items.media_type"
+                                      :limit 2147483647
+                                      :sort "name"}
+                       :headers {"Authorization" (str "OAuth " token)}}))
+            create-item (fn create-item [{:keys [name path type media_type]
+                                          {items :items} :_embedded}]
+                          {:title name
+                           :path (str/replace-first path "disk:" "")
+                           :type media_type
+                           :children (when (= type "dir")
+                                       (mapv create-item items))})]
+        (match resp
+          {:success true :body body} [:ok (create-item body)]
+          {:success false :body {:message error}} [:error error]
+          {:success false :error-text error} [:error error]
+          :else [:error "Unknown error"]))))
   (disk-name [_]
     (go
-     (let [response (<! (http/get
-                          ydisk-api-url
-                          {:headers {"Authorization" (str "OAuth " token)}}))
-           {:keys [body error-text success]} response]
-       (if success
-         (-> body :user :login)
-         (-> body :message (ex-info {:error error-text}))))))
-  (get-metadata [_ object-path]
+      (let [resp (<! (http/get
+                      ydisk-api-uri
+                      {:query-params {:fields "user.login,user.display_name"}
+                       :headers {"Authorization" (str "OAuth " token)}}))]
+        (match resp
+          {:success true :body {:user user}} [:ok (or
+                                                   (:display_name user)
+                                                   (:login user))]
+          {:success false :body {:message error}} [:error error]
+          {:success false :error-text error} [:error error]
+          :else [:error "Unknown error"]))))
+  (get-file [_ path]
     (go
-      (let [audio-or-dir? (fn [{:keys [media_type type]}]
-                            (or
-                              (= type "dir")
-                              (= media_type "audio")))
-            item->node (fn [{:keys [name path type]}]
-                         {:children (if (= type "dir")
-                                      []
-                                      nil)
-                          :label name
-                          :path path})
-            response (<! (http/get
-                           (url/url ydisk-api-url "resources")
-                           {:headers {"Authorization" (str "OAuth " token)}
-                            :query-params {:fields "name,type,path,_embedded.items.media_type,_embedded.items.name,_embedded.items.path,_embedded.items.type"
-                                           :limit 2147483647
-                                           :path object-path
-                                           :sort "name"}}))
-            {:keys [body error-text success]} response]
-        (if success
-          {:children (->> (get-in body [:_embedded :items])
-                          (filter audio-or-dir?)
-                          (mapv item->node))
-           :label (:name body)
-           :path (:path body)}
-          (-> body :message (ex-info {:error error-text}))))))
-  (get-file [_ file-path]
-    (go
-      nil)))
+      (let [resp (<! (http/get
+                      (uri ydisk-api-uri "resources" "download")
+                      {:query-params {:path path
+                                      :fields "href"}
+                       :headers {"Authorization" (str "OAuth " token)}}))]
+        (match resp
+          {:success true :body {:href href}} [:ok href]
+          {:success false :body {:message error}} [:error error]
+          {:success false :error-text error} [:error error]
+          :else [:error "Unknown error"])))))
 
-(defn ydisk-oauth-redirect! []
-  (let [query-params {:client_id "717ab2f77f24432b8ebde8bc736e64e0"
-                      :display "popup"
-                      :force_confirm "yes"
-                      :response_type "token"}
-        yandex-authorize-url (url/url "https://oauth.yandex.com/authorize")
-        redirect-url (assoc yandex-authorize-url :query query-params)]
-    (.. js/window -location (assign redirect-url))))
-
-(defn try-register-ydisk []
-  (let [hash (.. js/window -location -hash)
-        clear-hash! (fn []
-                      (if (.isSupported Html5History)
-                        (doto (Html5History.)
-                          (.setUseFragment false)
-                          (.replaceToken ""))
-                        (set! (.. js/window -location -hash) "")))
-        decode-match (fn [match]
-                       (->> match rest (map url/url-decode)))
-        process-error (fn [[error error_description]]
-                        (throw
-                          (ex-info error_description {:error error})))
-        register-disk (fn [[access-token]]
-                        (->YandexDisk access-token))]
-    (when-not (empty? hash)
-      (clear-hash!)
-      (condp re-find hash
-        #"access_token=([^&]+)" :>> (comp register-disk decode-match)
-        #"error=([^&]+)&error_description=([^&]+)" :>> (comp process-error decode-match)
-        nil))))
+(defonce disk-registrators
+  {"Yandex.Disk" (fn []
+                   (let [query-params {:client_id "717ab2f77f24432b8ebde8bc736e64e0"
+                                       :display "popup"
+                                       :force_confirm "yes"
+                                       :response_type "token"}
+                         auth-url (assoc
+                                   (uri "https://oauth.yandex.com/authorize")
+                                   :query query-params)]
+                     (.open js/window auth-url "_blank" "width=640,height=480")))})
 
 (swap!
-  storage/transit-write-handlers
-  assoc
-  YandexDisk
-  (transit/write-handler (constantly "ydisk") :token))
+ storage/transit-write-handlers
+ assoc
+ YandexDisk
+ (transit/write-handler (constantly "ydisk") :token))
 
 (swap!
-  storage/transit-read-handlers
-  assoc
-  "ydisk"
-  (transit/read-handler ->YandexDisk))
+ storage/transit-read-handlers
+ assoc
+ "ydisk" (transit/read-handler ->YandexDisk))
+
+(defonce disks-store
+  (storage/local-storage
+   (atom (sorted-map))
+   :disks))
+
+(defroute ^:private ydisk-auth-success #"/access_token=([^&]+).+" [token]
+  (when-some [opener (.-opener js/window)]
+    (let [disk (->YandexDisk token)]
+      (go
+        (match (<! (disk-name disk))
+          [:ok name] (do
+                       (swap! disks-store assoc name disk)
+                       (.yamper.view.success
+                        opener
+                        (str "New disk registered: " name)))
+          [:error error] (.yamper.view.error opener error))
+        (.close js/window)))))
+
+(defroute ^:private ydisk-auth-error #"/error=(.+)&error_description=(.+)$" [_ error]
+  (when-some [opener (.-opener js/window)]
+    (.yamper.view.error opener (uri-decode error))
+    (.close js/window)))
