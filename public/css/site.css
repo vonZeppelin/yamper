@@ -1,13 +1,39 @@
+.disk-dir i {
+  margin-left: 5px;
+}
+
 .logo {
   color: white;
+  float: left;
   text-transform: uppercase;
 }
 
 .logo i {
   color: #ff0000;
   font-size: 1.5em;
+  margin: 0 -10px;
 }
 
-.navigator {
-  background-color: white;
+.playback-controls {
+  text-align: right;
+}
+
+.playback-controls button {
+  margin-left: 5px;
+}
+
+/* .track-slider {
+  float: left;
+  width: 45%;
+}
+
+.volume-slider {
+  float: left;
+  width: 25%;
+} */
+
+.uploader {
+  position: absolute;
+  height: 100%;
+  width: 100%;
 }

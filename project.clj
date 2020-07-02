@@ -4,17 +4,19 @@
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/LICENSE-2.0.html"}
 
-  :dependencies [[org.clojure/clojure "1.10.0"]
+  :dependencies [[org.clojure/clojure "1.10.1"]
                  [org.clojure/clojurescript "1.10.520"]
-                 [org.clojure/core.async "0.4.490"]
+                 [org.clojure/core.async "0.4.500"]
                  ;; ui libs
-                 [com.hypaer/ant-man "1.7.4"]
-                 [reagent "0.8.1"]
+                 ;; https://clojurescript.org/guides/webpack
+                 [com.hypaer/ant-man "1.7.7"]
+                 [reagent "0.9.0-rc2"]
                  ;; misc libs
                  [alandipert/storage-atom "2.0.1"]
                  [com.arohner/uri "0.1.2"]
                  [clj-commons/secretary "1.2.4"]
                  [cljs-http "0.1.46"]
+                 [cljsjs/howler "2.0.5-0"]
                  [org.clojure/core.match "0.3.0"]]
 
   :resource-paths ["public"]
@@ -49,7 +51,7 @@
             "publish" ["do" "package" ["exec" "deploy.clj"]]}
 
   :profiles {:dev {:dependencies [[binaryage/devtools "0.9.10"]
-                                  [cider/piggieback "0.4.0"]
+                                  [cider/piggieback "0.4.1"]
                                   [figwheel-sidecar "0.5.18"]
                                   [nrepl "0.6.0"]]
                    :plugins [[lein-cljsbuild "1.1.7"]

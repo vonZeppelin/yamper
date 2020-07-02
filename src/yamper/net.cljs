@@ -1,13 +1,12 @@
 (ns yamper.net
   (:require
    [alandipert.storage-atom :as storage]
-   [cemerick.uri :refer [uri uri-decode]]
+   [cemerick.uri :refer [uri]]
    [cljs-http.client :as http]
    [cljs.core.async :refer [<!] :refer-macros [go]]
    [cljs.core.match :refer-macros [match]]
    [clojure.string :as str]
-   [cognitect.transit :as transit]
-   [secretary.core :refer-macros [defroute]]))
+   [cognitect.transit :as transit]))
 
 (defprotocol IDisk
   (browse [this path])
@@ -74,7 +73,9 @@
                          auth-url (assoc
                                    (uri "https://oauth.yandex.com/authorize")
                                    :query query-params)]
-                     (.open js/window auth-url "_blank" "width=640,height=480")))})
+                     (.open js/window auth-url "_blank" "width=640,height=480")))
+   "Local FS" (fn []
+                (.open js/window "../#localfs" "_blank" "width=640,height=480"))})
 
 (swap!
  storage/transit-write-handlers
@@ -91,21 +92,3 @@
   (storage/local-storage
    (atom (sorted-map))
    :disks))
-
-(defroute ^:private ydisk-auth-success #"/access_token=([^&]+).+" [token]
-  (when-some [opener (.-opener js/window)]
-    (let [disk (->YandexDisk token)]
-      (go
-        (match (<! (disk-name disk))
-          [:ok name] (do
-                       (swap! disks-store assoc name disk)
-                       (.yamper.view.success
-                        opener
-                        (str "New disk registered: " name)))
-          [:error error] (.yamper.view.error opener error))
-        (.close js/window)))))
-
-(defroute ^:private ydisk-auth-error #"/error=(.+)&error_description=(.+)$" [_ error]
-  (when-some [opener (.-opener js/window)]
-    (.yamper.view.error opener (uri-decode error))
-    (.close js/window)))
